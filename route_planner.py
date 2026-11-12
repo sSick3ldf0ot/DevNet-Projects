@@ -150,6 +150,8 @@ class RoutePlanner(tk.Tk):
         btns.grid(row=5, column=0, columnspan=3, sticky="ew", **pad)
         self.go_btn = ttk.Button(btns, text="Get directions", command=self.on_submit)
         self.go_btn.pack(side="left")
+        self.compare_btn = ttk.Button(btns, text="Compare modes", command=self.on_compare)
+        self.compare_btn.pack(side="left", padx=6)
         ttk.Button(btns, text="Clear output", command=self.clear_output).pack(side="left", padx=6)
 
         # Output
@@ -212,7 +214,7 @@ class RoutePlanner(tk.Tk):
         job = dict(names=names, vehicle=vehicle, unit=self.unit_var.get(),
                    alternatives=self.alt_var.get(), cost=cost_inputs)
 
-        self.go_btn.config(state="disabled")
+        self._set_busy(True)
         self.status_var.set("Working...")
         threading.Thread(target=self._worker, args=(job,), daemon=True).start()
 
@@ -261,11 +263,74 @@ class RoutePlanner(tk.Tk):
         except Exception as e:  # last-resort guard so the button always re-enables
             self.after(0, self._finish, [f"Unexpected error: {e}", ""], "Error")
 
+    # --- route comparison -------------------------------------------------
+    def _set_busy(self, busy):
+        state = "disabled" if busy else "normal"
+        self.go_btn.config(state=state)
+        self.compare_btn.config(state=state)
+
+    def on_compare(self):
+        start = self.start_var.get().strip()
+        dest = self.dest_var.get().strip()
+        if not start or not dest:
+            messagebox.showwarning("Missing input", "Please enter both a starting location and a destination.")
+            return
+        if KEY == "YOUR_API_KEY_HERE":
+            messagebox.showerror("API key missing", "Set your GraphHopper key in GRAPHHOPPER_KEY or in the script.")
+            return
+
+        names = [start] + list(self.stop_list.get(0, "end")) + [dest]
+        job = dict(names=names, unit=self.unit_var.get())
+
+        self._set_busy(True)
+        self.status_var.set("Comparing modes...")
+        threading.Thread(target=self._compare_worker, args=(job,), daemon=True).start()
+
+    def _compare_worker(self, job):
+        """Routes the trip with every mode in PROFILES and ranks them by travel time."""
+        lines = []
+        try:
+            points, labels = [], []
+            for name in job["names"]:
+                lat, lng, label = geocode(name)
+                points.append((lat, lng))
+                labels.append(label)
+
+            results, skipped = [], []
+            for mode in PROFILES:
+                try:
+                    path = fetch_routes(points, mode, False)[0]
+                    results.append((mode, path["distance"], path["time"]))
+                except ValueError as e:
+                    skipped.append(f"{mode}: {e}")
+
+            results.sort(key=lambda r: r[2])  # least time first
+
+            lines.append("=" * 60)
+            lines.append(" -> ".join(labels))
+            lines.append("Modes ranked from fastest to slowest")
+            lines.append("=" * 60)
+            now = datetime.now()
+            for rank, (mode, dist, t) in enumerate(results, start=1):
+                eta = (now + timedelta(milliseconds=t)).strftime("%I:%M %p, %b %d")
+                lines.append(f"{rank}. {mode:<6} {fmt_duration(t)}  "
+                             f"{fmt_distance(dist, job['unit']):>10}  arrive {eta}")
+            for msg in skipped:
+                lines.append(f"Skipped {msg}")
+            lines.append("")
+            self.after(0, self._finish, lines, "Comparison done")
+        except requests.exceptions.RequestException as e:
+            self.after(0, self._finish, [f"Network error: {e}", ""], "Network error")
+        except ValueError as e:
+            self.after(0, self._finish, [f"Error: {e}", ""], "Error")
+        except Exception as e:  # keeps the buttons from staying disabled
+            self.after(0, self._finish, [f"Unexpected error: {e}", ""], "Error")
+
     def _finish(self, lines, status):
         for line in lines:
             self.write(line)
         self.status_var.set(status)
-        self.go_btn.config(state="normal")
+        self._set_busy(False)
 
 
 if __name__ == "__main__":
