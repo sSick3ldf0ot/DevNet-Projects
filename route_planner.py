@@ -5,21 +5,40 @@ from datetime import datetime, timedelta
 from tkinter import ttk, scrolledtext, messagebox
 
 import requests
+import tkintermapview  # pip install tkintermapview
+from PIL import Image, ImageDraw, ImageTk  # installed with tkintermapview
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 # Set your key as an environment variable (recommended):
-#   Windows (cmd):  setx GRAPHHOPPER_KEY "your-key-here"
+#   Windows (cmd):  setx GRAPHHOPPER_KEY "your-key-here"   (then reopen the terminal)
 #   Mac/Linux:      export GRAPHHOPPER_KEY="your-key-here"
 # or paste it below instead of YOUR_API_KEY_HERE.
-KEY = "09e599e9-232b-4660-8b6e-ac91c1233e03"
+KEY = os.environ.get("GRAPHHOPPER_KEY", "YOUR_API_KEY_HERE")
 
 GEOCODE_URL = "https://graphhopper.com/api/1/geocode"
 ROUTE_URL = "https://graphhopper.com/api/1/route"
 PROFILES = ["car", "bike", "foot"]
 KM_PER_MILE = 1.609344
 TIMEOUT = 15  # seconds
+
+# Map colours
+COLOR_SELECTED = "#1a73e8"
+COLOR_OTHER = "#9aa0a6"
+COLOR_TURN_OUTER = "#d93025"
+COLOR_TURN_INNER = "#ffffff"
+
+# GraphHopper instruction "sign" -> arrow + short label
+SIGN_LABELS = {
+    -98: "U-turn", -8: "U-turn", -7: "Keep left", -3: "Sharp left", -2: "Left",
+    -1: "Slight left", 0: "Straight", 1: "Slight right", 2: "Right",
+    3: "Sharp right", 4: "Arrive", 5: "Stop", 6: "Roundabout", 7: "Keep right", 8: "U-turn",
+}
+SIGN_ARROWS = {
+    -98: "↶", -8: "↶", -7: "↖", -3: "⬅", -2: "←", -1: "↖", 0: "↑",
+    1: "↗", 2: "→", 3: "➡", 4: "⚑", 5: "●", 6: "↻", 7: "↗", 8: "↷",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +65,8 @@ def geocode(location):
 
 def fetch_routes(points, vehicle, want_alternatives):
     """Call the routing API. points is a list of (lat, lng). Returns list of paths."""
-    params = [("key", KEY), ("vehicle", vehicle)]
+    params = [("key", KEY), ("vehicle", vehicle),
+              ("points_encoded", "false")]  # plain GeoJSON coordinates, easy to draw
     for lat, lng in points:
         params.append(("point", f"{lat},{lng}"))
 
@@ -59,6 +79,21 @@ def fetch_routes(points, vehicle, want_alternatives):
     if r.status_code != 200:
         raise ValueError(f"Routing error ({r.status_code}): {data.get('message', 'unknown')}")
     return data["paths"]
+
+
+def parse_path(path, name):
+    """Turn an API path into drawable data: line coordinates + turn-by-turn steps."""
+    coords = [(c[1], c[0]) for c in path["points"]["coordinates"]]  # GeoJSON is (lng, lat)
+    steps = []
+    for s in path.get("instructions", []):
+        idx = min(s["interval"][0], len(coords) - 1)
+        steps.append({
+            "text": s["text"],
+            "distance": s["distance"],
+            "sign": s.get("sign", 0),
+            "pos": coords[idx],  # where on the map this instruction happens
+        })
+    return {"name": name, "coords": coords, "steps": steps}
 
 
 # ---------------------------------------------------------------------------
@@ -81,14 +116,46 @@ class RoutePlanner(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("GraphHopper Route Planner")
-        self.geometry("760x780")
-        self.minsize(640, 600)
+        self.geometry("1360x820")
+        self.minsize(1000, 620)
+
+        # Map state
+        self.routes = []        # list of dicts from parse_path()
+        self.stops = []         # list of (lat, lng, label)
+        self.selected = 0       # index of the highlighted route
+        self.unit = "km"
+        self.highlight_marker = None
+
+        self.turn_icon = self._make_dot(COLOR_TURN_OUTER, 14)
+        self.focus_icon = self._make_dot("#fbbc04", 22)
         self._build_widgets()
+
+    @staticmethod
+    def _make_dot(color, size):
+        """Small round map marker (much less bulky than the default pin)."""
+        big = size * 4  # draw large, then shrink for smooth edges
+        img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.ellipse((0, 0, big - 1, big - 1), fill="white")
+        m = big // 6
+        d.ellipse((m, m, big - 1 - m, big - 1 - m), fill=color)
+        return ImageTk.PhotoImage(img.resize((size, size), Image.LANCZOS))
 
     def _build_widgets(self):
         pad = {"padx": 8, "pady": 4}
-        form = ttk.Frame(self)
-        form.pack(fill="x", padx=10, pady=8)
+        # Status bar first so it always stays visible at the bottom
+        self.status_var = tk.StringVar(value="Ready")
+        ttk.Label(self, textvariable=self.status_var, anchor="w").pack(side="bottom", fill="x", padx=10, pady=(0, 6))
+
+        # Left column = inputs + results, right = big map (drag the divider to resize)
+        self.main = ttk.PanedWindow(self, orient="horizontal")
+        self.main.pack(fill="both", expand=True, padx=10, pady=8)
+        left = ttk.Frame(self.main, width=500)
+        left.pack_propagate(False)
+        self.main.add(left, weight=0)
+
+        form = ttk.Frame(left)
+        form.pack(fill="x")
         form.columnconfigure(1, weight=1)
 
         # Start / destination
@@ -111,7 +178,7 @@ class RoutePlanner(tk.Tk):
         stop_entry.bind("<Return>", lambda e: self.add_stop())
         ttk.Button(stop_frame, text="Add stop", command=self.add_stop).grid(row=0, column=1, padx=(6, 0))
         ttk.Button(stop_frame, text="Remove selected", command=self.remove_stop).grid(row=0, column=2, padx=(6, 0))
-        self.stop_list = tk.Listbox(stop_frame, height=4)
+        self.stop_list = tk.Listbox(stop_frame, height=2)
         self.stop_list.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 0))
 
         # Options row
@@ -131,11 +198,12 @@ class RoutePlanner(tk.Tk):
                      state="readonly", width=8).pack(side="left", padx=(4, 16))
 
         self.alt_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(opts, text="Show alternative routes", variable=self.alt_var).pack(side="left")
+        ttk.Checkbutton(form, text="Show alternative routes", variable=self.alt_var).grid(
+            row=4, column=0, columnspan=3, sticky="w", **pad)
 
         # Cost estimate (car only)
         self.cost_frame = ttk.LabelFrame(form, text="Fuel cost estimate (car only)")
-        self.cost_frame.grid(row=4, column=0, columnspan=3, sticky="ew", **pad)
+        self.cost_frame.grid(row=5, column=0, columnspan=3, sticky="ew", **pad)
         ttk.Label(self.cost_frame, text="Fuel efficiency (km/L):").pack(side="left", padx=(8, 4), pady=6)
         self.eff_var = tk.StringVar(value="12")
         self.eff_entry = ttk.Entry(self.cost_frame, textvariable=self.eff_var, width=8)
@@ -147,19 +215,34 @@ class RoutePlanner(tk.Tk):
 
         # Buttons
         btns = ttk.Frame(form)
-        btns.grid(row=5, column=0, columnspan=3, sticky="ew", **pad)
+        btns.grid(row=6, column=0, columnspan=3, sticky="ew", **pad)
         self.go_btn = ttk.Button(btns, text="Get directions", command=self.on_submit)
         self.go_btn.pack(side="left")
         self.compare_btn = ttk.Button(btns, text="Compare modes", command=self.on_compare)
         self.compare_btn.pack(side="left", padx=6)
         ttk.Button(btns, text="Clear output", command=self.clear_output).pack(side="left", padx=6)
 
-        # Output
-        self.output = scrolledtext.ScrolledText(self, wrap="word", font=("Consolas", 10), state="disabled")
-        self.output.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.tabs = ttk.Notebook(left)
+        self.tabs.pack(fill="both", expand=True, pady=(6, 0))
 
-        self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(self, textvariable=self.status_var, anchor="w").pack(fill="x", padx=10, pady=(0, 6))
+        self.map = tkintermapview.TkinterMapView(self.main, corner_radius=0)
+        self.map.set_position(12.8797, 121.7740)  # Philippines overview until a route is loaded
+        self.map.set_zoom(6)
+        self.main.add(self.map, weight=1)
+
+        # Tab 1: summary text (same as before)
+        self.output = scrolledtext.ScrolledText(self.tabs, wrap="word", font=("Consolas", 10), state="disabled")
+        self.tabs.add(self.output, text="Summary")
+
+        # Tab 2: clickable turn-by-turn list
+        turn_frame = ttk.Frame(self.tabs)
+        self.turn_list = tk.Listbox(turn_frame, font=("Consolas", 10), activestyle="none", exportselection=False)
+        scroll = ttk.Scrollbar(turn_frame, orient="vertical", command=self.turn_list.yview)
+        self.turn_list.config(yscrollcommand=scroll.set)
+        self.turn_list.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.turn_list.bind("<<ListboxSelect>>", self._on_turn_selected)
+        self.tabs.add(turn_frame, text="Turn-by-turn")
 
     # --- widget helpers ---------------------------------------------------
     def _toggle_cost_fields(self):
@@ -187,6 +270,101 @@ class RoutePlanner(tk.Tk):
         self.output.config(state="normal")
         self.output.delete("1.0", "end")
         self.output.config(state="disabled")
+        # Also wipe the map and turn list
+        self.routes, self.stops, self.highlight_marker = [], [], None
+        self.map.delete_all_path()
+        self.map.delete_all_marker()
+        self.turn_list.delete(0, "end")
+
+    # --- map drawing ------------------------------------------------------
+    def show_routes(self, routes, stops, unit, fit=True):
+        """Store the new result set, draw it, and zoom the map to fit it."""
+        self.routes, self.stops, self.unit, self.selected = routes, stops, unit, 0
+        self._redraw()
+        if fit:
+            self._fit_to_route(routes[self.selected]["coords"])
+
+    def select_route(self, index):
+        """Called when the user clicks a grey (alternative) route on the map."""
+        if 0 <= index < len(self.routes) and index != self.selected:
+            self.selected = index
+            self._redraw()
+            self.status_var.set(f"Selected: {self.routes[index]['name']}")
+
+    def _fit_to_route(self, coords):
+        lats = [c[0] for c in coords]
+        lngs = [c[1] for c in coords]
+        if len(set(lats)) == 1 and len(set(lngs)) == 1:
+            self.map.set_position(lats[0], lngs[0])
+            self.map.set_zoom(15)
+            return
+        self.map.fit_bounding_box((max(lats), min(lngs)), (min(lats), max(lngs)))
+
+    def _redraw(self):
+        self.map.delete_all_path()
+        self.map.delete_all_marker()
+        self.highlight_marker = None
+
+        # Unselected routes first (so the selected one is drawn on top); click one to select it
+        for i, route in enumerate(self.routes):
+            if i != self.selected:
+                self.map.set_path(route["coords"], color=COLOR_OTHER, width=4,
+                                  command=lambda path, idx=i: self.select_route(idx))
+        current = self.routes[self.selected]
+        self.map.set_path(current["coords"], color=COLOR_SELECTED, width=6)
+
+        # Start / via / end markers
+        last = len(self.stops) - 1
+        for k, (lat, lng, label) in enumerate(self.stops):
+            title = "Start" if k == 0 else "End" if k == last else f"Stop {k}"
+            self.map.set_marker(lat, lng, text=f"{title}: {label.split(',')[0]}")
+
+        # Small red dot at every turn on the selected route; click one to jump to it in the list
+        for i, step in enumerate(current["steps"]):
+            if step["sign"] in (0, 4, 5):  # skip "continue straight", arrival and via points
+                continue
+            self.map.set_marker(step["pos"][0], step["pos"][1],
+                                icon=self.turn_icon, icon_anchor="center",
+                                command=self._on_turn_marker_clicked, data=i)
+
+        # Fill the turn-by-turn list for the selected route
+        self.turn_list.delete(0, "end")
+        for step in current["steps"]:
+            arrow = SIGN_ARROWS.get(step["sign"], "•")
+            self.turn_list.insert("end", f" {arrow}  {step['text']}  ({fmt_distance(step['distance'], self.unit)})")
+
+    def _on_turn_marker_clicked(self, marker):
+        self._focus_step(marker.data, zoom=False)
+
+    def _on_turn_selected(self, _event):
+        sel = self.turn_list.curselection()
+        if sel:
+            self._focus_step(sel[0], zoom=True, update_list=False)
+
+    def _focus_step(self, index, zoom=True, update_list=True):
+        """Highlight one instruction on the map and in the list."""
+        steps = self.routes[self.selected]["steps"] if self.routes else []
+        if not (0 <= index < len(steps)):
+            return
+        step = steps[index]
+        lat, lng = step["pos"]
+
+        if update_list:
+            self.turn_list.selection_clear(0, "end")
+            self.turn_list.selection_set(index)
+            self.turn_list.see(index)
+            self.tabs.select(self.turn_list.master)
+
+        if self.highlight_marker is not None:
+            self.highlight_marker.delete()
+        text = step["text"] if len(step["text"]) <= 45 else step["text"][:42] + "..."
+        self.highlight_marker = self.map.set_marker(
+            lat, lng, text=text, icon=self.focus_icon, icon_anchor="center")
+
+        if zoom:
+            self.map.set_position(lat, lng)
+            self.map.set_zoom(17)
+        self.status_var.set(f"{SIGN_LABELS.get(step['sign'], 'Step')}: {step['text']}")
 
     # --- main action ------------------------------------------------------
     def on_submit(self):
@@ -235,8 +413,11 @@ class RoutePlanner(tk.Tk):
             lines.append(f"Vehicle: {job['vehicle']}")
             if job["alternatives"] and len(points) > 2:
                 lines.append("(Alternatives only work for 2-point trips, so showing the main route.)")
+            if len(paths) > 1:
+                lines.append("Tip: click a grey line on the map to switch to that route.")
             lines.append("=" * 60)
 
+            routes = []
             for i, path in enumerate(paths, start=1):
                 lines.append("")
                 lines.append(f"--- Route {i} of {len(paths)} ---" if len(paths) > 1 else "--- Route ---")
@@ -254,8 +435,12 @@ class RoutePlanner(tk.Tk):
                 lines.append("")
                 for step in path.get("instructions", []):
                     lines.append(f"  {step['text']} ({fmt_distance(step['distance'], job['unit'])})")
+
+                routes.append(parse_path(path, f"Route {i}"))
             lines.append("")
-            self.after(0, self._finish, lines, "Done")
+
+            stops = [(p[0], p[1], lbl) for p, lbl in zip(points, labels)]
+            self.after(0, self._finish, lines, "Done", (routes, stops, job["unit"]))
         except requests.exceptions.RequestException as e:
             self.after(0, self._finish, [f"Network error: {e}", ""], "Network error")
         except ValueError as e:
@@ -300,7 +485,7 @@ class RoutePlanner(tk.Tk):
             for mode in PROFILES:
                 try:
                     path = fetch_routes(points, mode, False)[0]
-                    results.append((mode, path["distance"], path["time"]))
+                    results.append((mode, path["distance"], path["time"], parse_path(path, mode)))
                 except ValueError as e:
                     skipped.append(f"{mode}: {e}")
 
@@ -309,16 +494,21 @@ class RoutePlanner(tk.Tk):
             lines.append("=" * 60)
             lines.append(" -> ".join(labels))
             lines.append("Modes ranked from fastest to slowest")
+            lines.append("Tip: click a grey line on the map to see that mode's turns.")
             lines.append("=" * 60)
             now = datetime.now()
-            for rank, (mode, dist, t) in enumerate(results, start=1):
+            for rank, (mode, dist, t, _) in enumerate(results, start=1):
                 eta = (now + timedelta(milliseconds=t)).strftime("%I:%M %p, %b %d")
                 lines.append(f"{rank}. {mode:<6} {fmt_duration(t)}  "
                              f"{fmt_distance(dist, job['unit']):>10}  arrive {eta}")
             for msg in skipped:
                 lines.append(f"Skipped {msg}")
             lines.append("")
-            self.after(0, self._finish, lines, "Comparison done")
+
+            routes = [r[3] for r in results]
+            stops = [(p[0], p[1], lbl) for p, lbl in zip(points, labels)]
+            payload = (routes, stops, job["unit"]) if routes else None
+            self.after(0, self._finish, lines, "Comparison done", payload)
         except requests.exceptions.RequestException as e:
             self.after(0, self._finish, [f"Network error: {e}", ""], "Network error")
         except ValueError as e:
@@ -326,11 +516,14 @@ class RoutePlanner(tk.Tk):
         except Exception as e:  # keeps the buttons from staying disabled
             self.after(0, self._finish, [f"Unexpected error: {e}", ""], "Error")
 
-    def _finish(self, lines, status):
+    def _finish(self, lines, status, map_data=None):
         for line in lines:
             self.write(line)
         self.status_var.set(status)
         self._set_busy(False)
+        if map_data:
+            routes, stops, unit = map_data
+            self.show_routes(routes, stops, unit)
 
 
 if __name__ == "__main__":
