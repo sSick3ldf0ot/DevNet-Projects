@@ -78,7 +78,6 @@ hands the text back to the main thread.
 - A map view of the route
 - Save or export directions to a file
 - A more visually appealing UI
-- Automated tests
 
 ## Team
 
