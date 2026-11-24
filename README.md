@@ -18,7 +18,7 @@ turn-by-turn directions.
 | Fuel cost | For cars only. Enter km/L and fuel price (defaults 12 km/L and 60 per liter). Cost = distance in km / km per liter x price. It is an estimate. |
 | ETA | Estimated arrival = current time + the trip duration returned by the API. |
 | Route optimization | The **Compare modes** button routes the same trip with every mode in `PROFILES` (car, bike, foot) and ranks them from fastest to slowest, with distance and arrival time. |
-| Simple UI | A Tkinter window with fields, buttons, a scrollable output box and a status bar. Network calls run in background threads so the window does not freeze. |
+| Planner UI | A clean, light Tkinter workspace with clearly grouped trip inputs, a route map, trip summary and clickable turn-by-turn directions. Network calls run in background threads so the window does not freeze. |
 | Also included | km or miles toggle, car/bike/foot dropdown, and up to 3 alternative routes (see limitations). |
 
 ## Requirements
@@ -72,12 +72,6 @@ hands the text back to the main thread.
 - Fuel cost is an estimate and only applies to cars. The currency symbol is fixed to the peso sign.
 - The free GraphHopper plan has request limits and may not support every vehicle type.
 - Each place name is geocoded to its top search result, so ambiguous names may pick the wrong place.
-
-## Backlog (future enhancements)
-
-- A map view of the route
-- Save or export directions to a file
-- A more visually appealing UI
 
 ## Team
 

@@ -25,9 +25,9 @@ KM_PER_MILE = 1.609344
 TIMEOUT = 15  # seconds
 
 # Map colours
-COLOR_SELECTED = "#1a73e8"
-COLOR_OTHER = "#9aa0a6"
-COLOR_TURN_OUTER = "#d93025"
+COLOR_SELECTED = "#2563eb"
+COLOR_OTHER = "#94a3b8"
+COLOR_TURN_OUTER = "#f97316"
 COLOR_TURN_INNER = "#ffffff"
 
 # GraphHopper instruction "sign" -> arrow + short label
@@ -196,8 +196,21 @@ class RoutePlanner(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Route Mate")
-        self.geometry("1360x820")
-        self.minsize(1000, 620)
+        self.geometry("1440x900")
+        self.minsize(1120, 700)
+
+        self.colors = {
+            "app": "#f3f6fb",
+            "surface": "#ffffff",
+            "ink": "#172033",
+            "muted": "#667085",
+            "line": "#dce3ed",
+            "blue": "#2563eb",
+            "blue_hover": "#1d4ed8",
+            "soft_blue": "#eff6ff",
+        }
+        self._configure_styles()
+        self.configure(background=self.colors["app"])
 
         # Map state
         self.routes = []        # list of dicts from parse_path()
@@ -209,6 +222,64 @@ class RoutePlanner(tk.Tk):
         self.turn_icon = self._make_dot(COLOR_TURN_OUTER, 14)
         self.focus_icon = self._make_dot("#fbbc04", 22)
         self._build_widgets()
+
+    def _configure_styles(self):
+        """Set a consistent, readable visual system for the Tkinter controls."""
+        style = ttk.Style(self)
+        style.theme_use("clam")
+
+        style.configure(".", font=("Segoe UI", 10), foreground=self.colors["ink"])
+        style.configure("TFrame", background=self.colors["app"])
+        style.configure("Panel.TFrame", background=self.colors["surface"])
+        style.configure("Header.TFrame", background=self.colors["app"])
+        style.configure("Footer.TFrame", background=self.colors["surface"])
+        style.configure("TLabel", background=self.colors["app"], foreground=self.colors["ink"])
+        style.configure("Panel.TLabel", background=self.colors["surface"], foreground=self.colors["ink"])
+        style.configure("Title.TLabel", font=("Segoe UI Semibold", 21), background=self.colors["app"])
+        style.configure("Subtitle.TLabel", font=("Segoe UI", 10), foreground=self.colors["muted"],
+                        background=self.colors["app"])
+        style.configure("Section.TLabel", font=("Segoe UI Semibold", 11), background=self.colors["surface"])
+        style.configure("Hint.TLabel", font=("Segoe UI", 9), foreground=self.colors["muted"],
+                        background=self.colors["surface"])
+        style.configure("Footer.TLabel", background=self.colors["surface"], foreground=self.colors["muted"],
+                        padding=(10, 7))
+        style.configure("Brand.TLabel", font=("Segoe UI Semibold", 11), foreground="#ffffff",
+                        background=self.colors["blue"], padding=(9, 7))
+
+        style.configure("TLabelframe", background=self.colors["surface"], bordercolor=self.colors["line"],
+                        relief="solid", borderwidth=1)
+        style.configure("TLabelframe.Label", background=self.colors["surface"], foreground=self.colors["muted"],
+                        font=("Segoe UI Semibold", 9))
+        style.configure("TEntry", fieldbackground=self.colors["surface"], foreground=self.colors["ink"],
+                        insertcolor=self.colors["ink"], padding=(9, 8), bordercolor=self.colors["line"])
+        style.map("TEntry", bordercolor=[("focus", self.colors["blue"])])
+        style.configure("TCombobox", fieldbackground=self.colors["surface"], foreground=self.colors["ink"],
+                        padding=(8, 6), bordercolor=self.colors["line"], arrowsize=13)
+        style.map("TCombobox", fieldbackground=[("readonly", self.colors["surface"])],
+                  foreground=[("readonly", self.colors["ink"])], bordercolor=[("focus", self.colors["blue"])])
+        style.configure("TCheckbutton", background=self.colors["surface"], foreground=self.colors["ink"])
+        style.map("TCheckbutton", background=[("active", self.colors["surface"])])
+
+        style.configure("TButton", font=("Segoe UI Semibold", 9), padding=(10, 7),
+                        background="#eef2f7", foreground=self.colors["ink"], bordercolor=self.colors["line"])
+        style.map("TButton", background=[("active", "#e2e8f0"), ("pressed", "#dbe3ee")])
+        style.configure("Primary.TButton", font=("Segoe UI Semibold", 10), padding=(13, 10),
+                        background=self.colors["blue"], foreground="#ffffff", borderwidth=0)
+        style.map("Primary.TButton", background=[("disabled", "#a9bce9"),
+                                                 ("pressed", self.colors["blue_hover"]),
+                                                 ("active", self.colors["blue_hover"])],
+                  foreground=[("disabled", "#f4f7ff")])
+        style.configure("Quiet.TButton", padding=(9, 7), background=self.colors["surface"],
+                        foreground=self.colors["muted"], borderwidth=0)
+        style.map("Quiet.TButton", background=[("active", "#f1f5f9")])
+
+        style.configure("TNotebook", background=self.colors["surface"], borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("TNotebook.Tab", padding=(14, 9), background="#f1f5f9",
+                        foreground=self.colors["muted"], font=("Segoe UI Semibold", 9))
+        style.map("TNotebook.Tab", background=[("selected", self.colors["surface"])],
+                  foreground=[("selected", self.colors["blue"])])
+        style.configure("TPanedwindow", background=self.colors["app"])
+        style.configure("Horizontal.TProgressbar", background=self.colors["blue"])
 
     @staticmethod
     def _make_dot(color, size):
@@ -222,109 +293,182 @@ class RoutePlanner(tk.Tk):
         return ImageTk.PhotoImage(img.resize((size, size), Image.LANCZOS))
 
     def _build_widgets(self):
-        pad = {"padx": 8, "pady": 4}
+        pad = {"padx": 10, "pady": 5}
+
+        header = ttk.Frame(self, style="Header.TFrame")
+        header.pack(fill="x", padx=20, pady=(16, 10))
+        ttk.Label(header, text="RM", style="Brand.TLabel").pack(side="left", padx=(0, 11))
+        title_block = ttk.Frame(header, style="Header.TFrame")
+        title_block.pack(side="left", fill="y")
+        ttk.Label(title_block, text="Route Mate", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_block, text="Plan a trip, compare routes, and follow every turn.",
+                  style="Subtitle.TLabel").pack(anchor="w", pady=(1, 0))
+
         # Status bar first so it always stays visible at the bottom
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(self, textvariable=self.status_var, anchor="w").pack(side="bottom", fill="x", padx=10, pady=(0, 6))
+        footer = ttk.Frame(self, style="Footer.TFrame")
+        footer.pack(side="bottom", fill="x", padx=20, pady=(0, 12))
+        ttk.Label(footer, textvariable=self.status_var, style="Footer.TLabel", anchor="w").pack(fill="x")
 
-        # Left column = inputs + results, right = big map (drag the divider to resize)
+        # Left column = trip controls + results, right = map.
         self.main = ttk.PanedWindow(self, orient="horizontal")
-        self.main.pack(fill="both", expand=True, padx=10, pady=8)
-        left = ttk.Frame(self.main, width=500)
+        self.main.pack(fill="both", expand=True, padx=20, pady=(4, 12))
+        left = ttk.Frame(self.main, width=430, style="Panel.TFrame")
         left.pack_propagate(False)
         self.main.add(left, weight=0)
 
-        form = ttk.Frame(left)
-        form.pack(fill="x")
-        form.columnconfigure(1, weight=1)
+        left_scroll = tk.Canvas(left, background=self.colors["surface"], highlightthickness=0,
+                                borderwidth=0)
+        left_scroll.pack(side="left", fill="both", expand=True)
+        left_scrollbar = ttk.Scrollbar(left, orient="vertical", command=left_scroll.yview)
+        left_scrollbar.pack(side="right", fill="y")
+        left_scroll.configure(yscrollcommand=left_scrollbar.set)
+
+        scrollable_left = ttk.Frame(left_scroll, style="Panel.TFrame")
+        left_scroll_window = left_scroll.create_window((0, 0), window=scrollable_left, anchor="nw")
+
+        def configure_left_scroll(event):
+            left_scroll.itemconfigure(left_scroll_window, width=event.width)
+            left_scroll.configure(scrollregion=left_scroll.bbox("all"))
+
+        def configure_scrollable_left(event):
+            left_scroll.configure(scrollregion=left_scroll.bbox("all"))
+
+        def on_left_mousewheel(event):
+            left_scroll.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        left_scroll.bind("<Configure>", configure_left_scroll)
+        scrollable_left.bind("<Configure>", configure_scrollable_left)
+        left.bind_all("<MouseWheel>", on_left_mousewheel)
+        left.bind_all("<Button-4>", lambda event: left_scroll.yview_scroll(-1, "units"))
+        left.bind_all("<Button-5>", lambda event: left_scroll.yview_scroll(1, "units"))
+
+        form = ttk.Frame(scrollable_left, style="Panel.TFrame")
+        form.pack(fill="x", padx=16, pady=(15, 9))
+        form.columnconfigure(0, weight=1)
+        ttk.Label(form, text="Plan your route", style="Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 2))
+        ttk.Label(form, text="Add your locations and travel preferences.", style="Hint.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(0, 9))
 
         # Start / destination
-        ttk.Label(form, text="Starting location:").grid(row=0, column=0, sticky="w", **pad)
+        ttk.Label(form, text="STARTING LOCATION", style="Hint.TLabel").grid(row=2, column=0, sticky="w", **pad)
         self.start_var = tk.StringVar()
-        ttk.Entry(form, textvariable=self.start_var).grid(row=0, column=1, columnspan=2, sticky="ew", **pad)
+        self.start_entry = ttk.Entry(form, textvariable=self.start_var)
+        self.start_entry.grid(row=3, column=0, sticky="ew", **pad)
 
-        ttk.Label(form, text="Destination:").grid(row=1, column=0, sticky="w", **pad)
+        ttk.Label(form, text="DESTINATION", style="Hint.TLabel").grid(row=4, column=0, sticky="w", **pad)
         self.dest_var = tk.StringVar()
-        ttk.Entry(form, textvariable=self.dest_var).grid(row=1, column=1, columnspan=2, sticky="ew", **pad)
+        self.dest_entry = ttk.Entry(form, textvariable=self.dest_var)
+        self.dest_entry.grid(row=5, column=0, sticky="ew", **pad)
+        self.start_entry.bind("<Return>", lambda e: self.on_submit())
+        self.dest_entry.bind("<Return>", lambda e: self.on_submit())
 
         # Waypoints
-        ttk.Label(form, text="Extra stops:").grid(row=2, column=0, sticky="nw", **pad)
-        stop_frame = ttk.Frame(form)
-        stop_frame.grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
+        stop_frame = ttk.LabelFrame(form, text=" EXTRA STOPS ")
+        stop_frame.grid(row=6, column=0, sticky="ew", padx=10, pady=(8, 5))
         stop_frame.columnconfigure(0, weight=1)
         self.stop_var = tk.StringVar()
         stop_entry = ttk.Entry(stop_frame, textvariable=self.stop_var)
-        stop_entry.grid(row=0, column=0, sticky="ew")
+        stop_entry.grid(row=0, column=0, sticky="ew", padx=(8, 5), pady=(8, 4))
         stop_entry.bind("<Return>", lambda e: self.add_stop())
-        ttk.Button(stop_frame, text="Add stop", command=self.add_stop).grid(row=0, column=1, padx=(6, 0))
-        ttk.Button(stop_frame, text="Remove selected", command=self.remove_stop).grid(row=0, column=2, padx=(6, 0))
-        self.stop_list = tk.Listbox(stop_frame, height=2)
-        self.stop_list.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        ttk.Button(stop_frame, text="Add", command=self.add_stop).grid(row=0, column=1, padx=(0, 8), pady=(8, 4))
+        self.stop_list = tk.Listbox(stop_frame, height=3, font=("Segoe UI", 9), activestyle="none",
+                                    background=self.colors["surface"], foreground=self.colors["ink"],
+                                    selectbackground=self.colors["soft_blue"], selectforeground=self.colors["blue"],
+                                    highlightthickness=0, borderwidth=0, exportselection=False)
+        self.stop_list.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=(3, 5))
+        ttk.Button(stop_frame, text="Remove selected", command=self.remove_stop,
+                   style="Quiet.TButton").grid(row=2, column=0, columnspan=2, sticky="e", padx=5, pady=(0, 5))
 
         # Options row
-        opts = ttk.Frame(form)
-        opts.grid(row=3, column=0, columnspan=3, sticky="ew", **pad)
-
-        ttk.Label(opts, text="Vehicle:").pack(side="left")
+        opts = ttk.Frame(form, style="Panel.TFrame")
+        opts.grid(row=7, column=0, sticky="ew", padx=10, pady=(5, 3))
+        opts.columnconfigure(0, weight=1)
+        opts.columnconfigure(1, weight=1)
+        ttk.Label(opts, text="TRAVEL MODE", style="Hint.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(opts, text="DISTANCE UNITS", style="Hint.TLabel").grid(row=0, column=1, sticky="w")
         self.vehicle_var = tk.StringVar(value="car")
         vehicle_box = ttk.Combobox(opts, textvariable=self.vehicle_var, values=PROFILES,
-                                   state="readonly", width=8)
-        vehicle_box.pack(side="left", padx=(4, 16))
+                                   state="readonly")
+        vehicle_box.grid(row=1, column=0, sticky="ew", padx=(0, 8), pady=(3, 0))
         vehicle_box.bind("<<ComboboxSelected>>", lambda e: self._toggle_cost_fields())
-
-        ttk.Label(opts, text="Units:").pack(side="left")
         self.unit_var = tk.StringVar(value="km")
         ttk.Combobox(opts, textvariable=self.unit_var, values=["km", "miles"],
-                     state="readonly", width=8).pack(side="left", padx=(4, 16))
+                     state="readonly").grid(row=1, column=1, sticky="ew", pady=(3, 0))
 
         self.alt_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(form, text="Show alternative routes", variable=self.alt_var).grid(
-            row=4, column=0, columnspan=3, sticky="w", **pad)
+            row=8, column=0, sticky="w", padx=10, pady=(7, 5))
 
         # Cost estimate (car only)
-        self.cost_frame = ttk.LabelFrame(form, text="Fuel cost estimate (car only)")
-        self.cost_frame.grid(row=5, column=0, columnspan=3, sticky="ew", **pad)
-        ttk.Label(self.cost_frame, text="Fuel efficiency (km/L):").pack(side="left", padx=(8, 4), pady=6)
+        self.cost_frame = ttk.LabelFrame(form, text=" FUEL COST ESTIMATE ")
+        self.cost_frame.grid(row=9, column=0, sticky="ew", padx=10, pady=(3, 7))
+        self.cost_frame.columnconfigure(1, weight=1)
+        self.cost_frame.columnconfigure(3, weight=1)
+        ttk.Label(self.cost_frame, text="Efficiency (km/L)", style="Hint.TLabel").grid(
+            row=0, column=0, sticky="w", padx=(8, 4), pady=(7, 2))
+        ttk.Label(self.cost_frame, text="Fuel price (₱/L)", style="Hint.TLabel").grid(
+            row=0, column=2, sticky="w", padx=(10, 4), pady=(7, 2))
         self.eff_var = tk.StringVar(value="12")
         self.eff_entry = ttk.Entry(self.cost_frame, textvariable=self.eff_var, width=8)
-        self.eff_entry.pack(side="left")
-        ttk.Label(self.cost_frame, text="Fuel price (₱/L):").pack(side="left", padx=(16, 4))
+        self.eff_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(8, 4), pady=(0, 8))
         self.price_var = tk.StringVar(value="60")
         self.price_entry = ttk.Entry(self.cost_frame, textvariable=self.price_var, width=8)
-        self.price_entry.pack(side="left")
+        self.price_entry.grid(row=1, column=2, columnspan=2, sticky="ew", padx=(10, 8), pady=(0, 8))
 
         # Buttons
-        btns = ttk.Frame(form)
-        btns.grid(row=6, column=0, columnspan=3, sticky="ew", **pad)
-        self.go_btn = ttk.Button(btns, text="Get directions", command=self.on_submit)
-        self.go_btn.pack(side="left")
+        btns = ttk.Frame(form, style="Panel.TFrame")
+        btns.grid(row=10, column=0, sticky="ew", padx=10, pady=(5, 7))
+        btns.columnconfigure(0, weight=1)
+        btns.columnconfigure(1, weight=1)
+        self.go_btn = ttk.Button(btns, text="Get directions", command=self.on_submit, style="Primary.TButton")
+        self.go_btn.grid(row=0, column=0, sticky="ew", padx=(0, 5))
         self.compare_btn = ttk.Button(btns, text="Compare modes", command=self.on_compare)
-        self.compare_btn.pack(side="left", padx=6)
-        ttk.Button(btns, text="Clear output", command=self.clear_output).pack(side="left", padx=6)
+        self.compare_btn.grid(row=0, column=1, sticky="ew", padx=(5, 0))
+        ttk.Button(btns, text="Clear", command=self.clear_output, style="Quiet.TButton").grid(
+            row=1, column=0, sticky="w", pady=(4, 0))
         self.export_btn = ttk.Button(btns, text="Export\u2026", command=self.on_export, state="disabled")
-        self.export_btn.pack(side="left", padx=6)
+        self.export_btn.grid(row=1, column=1, sticky="e", pady=(4, 0))
 
-        self.tabs = ttk.Notebook(left)
-        self.tabs.pack(fill="both", expand=True, pady=(6, 0))
+        self.tabs = ttk.Notebook(scrollable_left)
+        self.tabs.pack(fill="both", expand=True, padx=12, pady=(2, 12))
 
-        self.map = tkintermapview.TkinterMapView(self.main, corner_radius=0)
+        map_panel = ttk.Frame(self.main, style="Panel.TFrame")
+        map_panel.pack_propagate(False)
+        self.main.add(map_panel, weight=1)
+        map_header = ttk.Frame(map_panel, style="Panel.TFrame")
+        map_header.pack(fill="x", padx=15, pady=(13, 8))
+        ttk.Label(map_header, text="Route map", style="Section.TLabel").pack(side="left")
+        ttk.Label(map_header, text="Select a route or turn to explore it", style="Hint.TLabel").pack(
+            side="right", padx=(8, 0))
+        self.map = tkintermapview.TkinterMapView(map_panel, corner_radius=8)
+        self.map.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         self.map.set_position(12.8797, 121.7740)  # Philippines overview until a route is loaded
         self.map.set_zoom(6)
-        self.main.add(self.map, weight=1)
 
-        # Tab 1: summary text (same as before)
-        self.output = scrolledtext.ScrolledText(self.tabs, wrap="word", font=("Consolas", 10), state="disabled")
-        self.tabs.add(self.output, text="Summary")
+        # Tab 1: trip summary and route details.
+        self.output = scrolledtext.ScrolledText(
+            self.tabs, wrap="word", font=("Segoe UI", 10), state="disabled",
+            background=self.colors["surface"], foreground=self.colors["ink"],
+            insertbackground=self.colors["ink"], selectbackground=self.colors["soft_blue"],
+            relief="flat", borderwidth=0, padx=12, pady=10,
+        )
+        self.tabs.add(self.output, text="Trip summary")
 
-        # Tab 2: clickable turn-by-turn list
-        turn_frame = ttk.Frame(self.tabs)
-        self.turn_list = tk.Listbox(turn_frame, font=("Consolas", 10), activestyle="none", exportselection=False)
+        # Tab 2: clickable turn-by-turn list.
+        turn_frame = ttk.Frame(self.tabs, style="Panel.TFrame")
+        self.turn_list = tk.Listbox(
+            turn_frame, font=("Segoe UI", 10), activestyle="none", exportselection=False,
+            background=self.colors["surface"], foreground=self.colors["ink"],
+            selectbackground=self.colors["soft_blue"], selectforeground=self.colors["blue"],
+            highlightthickness=0, borderwidth=0,
+        )
         scroll = ttk.Scrollbar(turn_frame, orient="vertical", command=self.turn_list.yview)
         self.turn_list.config(yscrollcommand=scroll.set)
         self.turn_list.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
         self.turn_list.bind("<<ListboxSelect>>", self._on_turn_selected)
-        self.tabs.add(turn_frame, text="Turn-by-turn")
+        self.tabs.add(turn_frame, text="Directions")
 
     # --- widget helpers ---------------------------------------------------
     def _toggle_cost_fields(self):
