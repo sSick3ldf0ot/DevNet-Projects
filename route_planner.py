@@ -1,8 +1,9 @@
+import csv
 import os
 import threading
 import tkinter as tk
 from datetime import datetime, timedelta
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, filedialog
 
 import requests
 import tkintermapview  # pip install tkintermapview
@@ -81,7 +82,7 @@ def fetch_routes(points, vehicle, want_alternatives):
     return data["paths"]
 
 
-def parse_path(path, name):
+def parse_path(path, name, vehicle, cost=None):
     """Turn an API path into drawable data: line coordinates + turn-by-turn steps."""
     coords = [(c[1], c[0]) for c in path["points"]["coordinates"]]  # GeoJSON is (lng, lat)
     steps = []
@@ -93,7 +94,8 @@ def parse_path(path, name):
             "sign": s.get("sign", 0),
             "pos": coords[idx],  # where on the map this instruction happens
         })
-    return {"name": name, "coords": coords, "steps": steps}
+    return {"name": name, "vehicle": vehicle, "coords": coords, "steps": steps,
+            "distance": path["distance"], "time": path["time"], "cost": cost}
 
 
 # ---------------------------------------------------------------------------
@@ -110,12 +112,90 @@ def fmt_duration(ms):
 
 
 # ---------------------------------------------------------------------------
+# Export helpers
+# ---------------------------------------------------------------------------
+def _unit_distance(meters, unit):
+    km = meters / 1000
+    return km / KM_PER_MILE if unit == "miles" else km
+
+
+def export_csv(path, route, unit):
+    """One row per instruction. utf-8-sig so Excel opens accents and symbols correctly."""
+    dist_col = f"Distance ({'mi' if unit == 'miles' else 'km'})"
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["Step", "Turn", "Instruction", dist_col, "Latitude", "Longitude"])
+        for i, st in enumerate(route["steps"], start=1):
+            w.writerow([i, SIGN_LABELS.get(st["sign"], ""), st["text"],
+                        f"{_unit_distance(st['distance'], unit):.2f}",
+                        f"{st['pos'][0]:.6f}", f"{st['pos'][1]:.6f}"])
+
+
+def export_docx(path, route, routes, stops, unit):
+    """Word document: trip summary, optional route overview, turn-by-turn table."""
+    try:
+        from docx import Document
+        from docx.shared import Inches
+    except ImportError:
+        raise RuntimeError("Word export needs the python-docx package.\n"
+                           "Install it with:  pip install python-docx")
+
+    def add_table(doc, headers, rows, widths, header=True):
+        table = doc.add_table(rows=0, cols=len(widths))
+        table.style = "Table Grid"
+        if header:
+            cells = table.add_row().cells
+            for c, h in zip(cells, headers):
+                c.text = h
+                for r in c.paragraphs[0].runs:
+                    r.bold = True
+        for row in rows:
+            cells = table.add_row().cells
+            for c, val in zip(cells, row):
+                c.text = str(val)
+        for row in table.rows:
+            for c, w in zip(row.cells, widths):
+                c.width = Inches(w)
+        return table
+
+    dist_label = "mi" if unit == "miles" else "km"
+    doc = Document()
+    doc.add_heading("Route directions", level=0)
+    doc.add_paragraph(" \u2192 ".join(s[2] for s in stops))
+    doc.add_paragraph(f"Generated {datetime.now():%b %d, %Y %I:%M %p}")
+
+    doc.add_heading("Summary", level=1)
+    summary = [("Route", route["name"]),
+               ("Vehicle", route["vehicle"]),
+               ("Distance", fmt_distance(route["distance"], unit)),
+               ("Duration", fmt_duration(route["time"]))]
+    if route.get("cost") is not None:
+        summary.append(("Estimated fuel cost", f"\u20b1{route['cost']:,.2f}"))
+    tbl = add_table(doc, None, summary, [2.0, 4.5], header=False)
+    for row in tbl.rows:
+        for r in row.cells[0].paragraphs[0].runs:
+            r.bold = True
+
+    if len(routes) > 1:
+        doc.add_heading("All routes", level=1)
+        rows = [(r["name"] + (" (shown below)" if r is route else ""), r["vehicle"],
+                 fmt_distance(r["distance"], unit), fmt_duration(r["time"])) for r in routes]
+        add_table(doc, ["Route", "Vehicle", "Distance", "Duration"], rows, [2.2, 1.2, 1.5, 1.6])
+
+    doc.add_heading("Turn-by-turn directions", level=1)
+    rows = [(i, SIGN_LABELS.get(st["sign"], ""), st["text"], f"{_unit_distance(st['distance'], unit):.2f} {dist_label}")
+            for i, st in enumerate(route["steps"], start=1)]
+    add_table(doc, ["#", "Turn", "Instruction", "Distance"], rows, [0.4, 1.1, 3.9, 1.1])
+    doc.save(path)
+
+
+# ---------------------------------------------------------------------------
 # GUI
 # ---------------------------------------------------------------------------
 class RoutePlanner(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("GraphHopper Route Planner")
+        self.title("Route Mate")
         self.geometry("1360x820")
         self.minsize(1000, 620)
 
@@ -221,6 +301,8 @@ class RoutePlanner(tk.Tk):
         self.compare_btn = ttk.Button(btns, text="Compare modes", command=self.on_compare)
         self.compare_btn.pack(side="left", padx=6)
         ttk.Button(btns, text="Clear output", command=self.clear_output).pack(side="left", padx=6)
+        self.export_btn = ttk.Button(btns, text="Export\u2026", command=self.on_export, state="disabled")
+        self.export_btn.pack(side="left", padx=6)
 
         self.tabs = ttk.Notebook(left)
         self.tabs.pack(fill="both", expand=True, pady=(6, 0))
@@ -275,12 +357,14 @@ class RoutePlanner(tk.Tk):
         self.map.delete_all_path()
         self.map.delete_all_marker()
         self.turn_list.delete(0, "end")
+        self.export_btn.config(state="disabled")
 
     # --- map drawing ------------------------------------------------------
     def show_routes(self, routes, stops, unit, fit=True):
         """Store the new result set, draw it, and zoom the map to fit it."""
         self.routes, self.stops, self.unit, self.selected = routes, stops, unit, 0
         self._redraw()
+        self.export_btn.config(state="normal")
         if fit:
             self._fit_to_route(routes[self.selected]["coords"])
 
@@ -366,6 +450,35 @@ class RoutePlanner(tk.Tk):
             self.map.set_zoom(17)
         self.status_var.set(f"{SIGN_LABELS.get(step['sign'], 'Step')}: {step['text']}")
 
+    # --- export -----------------------------------------------------------
+    def on_export(self):
+        """Save the currently selected (blue) route as .docx or .csv."""
+        if not self.routes:
+            return
+        route = self.routes[self.selected]
+        default = f"directions_{route['vehicle']}_{datetime.now():%Y%m%d_%H%M}"
+        path = filedialog.asksaveasfilename(
+            title="Export directions", initialfile=default, defaultextension=".docx",
+            filetypes=[("Word document", "*.docx"), ("CSV file (Excel)", "*.csv")])
+        if not path:
+            return
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in (".docx", ".csv"):
+            path += ".docx"
+            ext = ".docx"
+        try:
+            if ext == ".csv":
+                export_csv(path, route, self.unit)
+            else:
+                export_docx(path, route, self.routes, self.stops, self.unit)
+        except PermissionError:
+            messagebox.showerror("Export failed", "Can't write to that file. Is it open in Word or Excel?")
+            return
+        except Exception as e:
+            messagebox.showerror("Export failed", str(e))
+            return
+        self.status_var.set(f"Saved {route['name']} to {path}")
+
     # --- main action ------------------------------------------------------
     def on_submit(self):
         start = self.start_var.get().strip()
@@ -427,6 +540,7 @@ class RoutePlanner(tk.Tk):
                 eta = datetime.now() + timedelta(milliseconds=path["time"])
                 lines.append(f"Estimated arrival: {eta.strftime('%I:%M %p, %b %d')}")
 
+                cost = None
                 if job["cost"]:
                     km_per_l, price = job["cost"]
                     cost = (path["distance"] / 1000) / km_per_l * price
@@ -436,7 +550,7 @@ class RoutePlanner(tk.Tk):
                 for step in path.get("instructions", []):
                     lines.append(f"  {step['text']} ({fmt_distance(step['distance'], job['unit'])})")
 
-                routes.append(parse_path(path, f"Route {i}"))
+                routes.append(parse_path(path, f"Route {i}", job["vehicle"], cost))
             lines.append("")
 
             stops = [(p[0], p[1], lbl) for p, lbl in zip(points, labels)]
@@ -485,7 +599,7 @@ class RoutePlanner(tk.Tk):
             for mode in PROFILES:
                 try:
                     path = fetch_routes(points, mode, False)[0]
-                    results.append((mode, path["distance"], path["time"], parse_path(path, mode)))
+                    results.append((mode, path["distance"], path["time"], parse_path(path, mode, mode)))
                 except ValueError as e:
                     skipped.append(f"{mode}: {e}")
 
