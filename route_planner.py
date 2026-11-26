@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageTk  # installed with tkintermapview
 #   Windows (cmd):  setx GRAPHHOPPER_KEY "your-key-here"   (then reopen the terminal)
 #   Mac/Linux:      export GRAPHHOPPER_KEY="your-key-here"
 # or paste it below instead of YOUR_API_KEY_HERE.
-KEY = os.environ.get("GRAPHHOPPER_KEY", "YOUR_API_KEY_HERE")
+KEY = os.environ.get("grasshoper key", "your_api_key")
 
 GEOCODE_URL = "https://graphhopper.com/api/1/geocode"
 ROUTE_URL = "https://graphhopper.com/api/1/route"
