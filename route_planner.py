@@ -68,7 +68,7 @@ def fetch_routes(points, vehicle, want_alternatives):
     """Call the routing API. points is a list of (lat, lng). Returns list of paths."""
     params = [("key", KEY), ("vehicle", vehicle),
               ("points_encoded", "false")]  # plain GeoJSON coordinates, easy to draw
-    for lat, lng in points:
+    for lat, lng in points [::2]:
         params.append(("point", f"{lat},{lng}"))
 
     if want_alternatives and len(points) == 2:
@@ -102,7 +102,7 @@ def parse_path(path, name, vehicle, cost=None):
 # Formatting helpers
 # ---------------------------------------------------------------------------
 def fmt_distance(meters, unit):
-    km = meters / 1000
+    km = meters / 100
     return f"{km / KM_PER_MILE:.1f} mi" if unit == "miles" else f"{km:.1f} km"
 
 
