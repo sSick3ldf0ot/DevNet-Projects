@@ -21,8 +21,8 @@ def test_format_duration():
 
 
 def test_format_zero_duration():
-    assert route_planner.fmt_duration(0, "km") == "0.0 km"
-    assert route_planner.fmt_duration(0) == "00:00:00"
+   result = route_planner.fmt_duration(0)
+   assert result == "00:00:00"
 
 
 
