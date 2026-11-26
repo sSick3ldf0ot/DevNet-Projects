@@ -102,7 +102,7 @@ def parse_path(path, name, vehicle, cost=None):
 # Formatting helpers
 # ---------------------------------------------------------------------------
 def fmt_distance(meters, unit):
-    km = meters / 1000
+    km = meters / 100
     return f"{km / KM_PER_MILE:.1f} mi" if unit == "miles" else f"{km:.1f} km"
 
 
