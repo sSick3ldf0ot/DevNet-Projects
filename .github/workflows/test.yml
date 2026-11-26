@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   test:
     runs-on: windows-latest
@@ -27,6 +31,14 @@ jobs:
       - name: Run automated tests
         run: |
           python -m pytest test_route_planner.py -v --junitxml=test-results.xml
+
+      - name: Publish Test Results
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: Pytest Results
+          path: test-results.xml
+          reporter: java-junit
 
       - name: Upload test results
         if: always()
