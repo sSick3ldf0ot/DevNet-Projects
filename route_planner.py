@@ -68,7 +68,7 @@ def fetch_routes(points, vehicle, want_alternatives):
     """Call the routing API. points is a list of (lat, lng). Returns list of paths."""
     params = [("key", KEY), ("vehicle", vehicle),
               ("points_encoded", "false")]  # plain GeoJSON coordinates, easy to draw
-    for lat, lng in points:
+    for lat, lng in points [::2]:
         params.append(("point", f"{lat},{lng}"))
 
     if want_alternatives and len(points) == 2:
